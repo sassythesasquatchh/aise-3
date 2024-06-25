@@ -4,6 +4,7 @@ import numpy as np
 import ipdb
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.animation import FuncAnimation
+from tqdm import tqdm
 
 
 def plot_data(data, title=None):
@@ -267,6 +268,9 @@ def construct_linear_system(
         t = data["t"][0, 0, :]
         u = data["u"]
         v = data["v"]
+        dt = np.mean(t[1:] - t[:-1])
+        dx = np.mean(x[1:] - x[:-1])
+        dy = np.mean(y[1:] - y[:-1])
 
         assert v.shape == u.shape, "u and v must have same shape"
 
@@ -274,7 +278,6 @@ def construct_linear_system(
 
             ut = np.zeros_like(u)
             vt = np.zeros_like(v)
-            dt = np.mean(t[1:] - t[:-1])
             # loop over spatial dimensions, to calculate how solution varies in time at each point
             for i in range(u.shape[0]):
                 for j in range(u.shape[1]):
@@ -287,8 +290,6 @@ def construct_linear_system(
 
             pure_u_derivs = []
             pure_v_derivs = []
-            dx = np.mean(x[1:] - x[:-1])
-            dy = np.mean(y[1:] - y[:-1])
 
             for sol, derivs in zip([u, v], [pure_u_derivs, pure_v_derivs]):
                 for order in range(1, d_order + 1):
@@ -356,7 +357,7 @@ def construct_linear_system(
                 + mixed_v_derivs
             )
 
-        elif deriv_method == "PolyDiff":
+        elif deriv_method == "polydiff":
 
             np.random.seed(0)
 
@@ -397,7 +398,7 @@ def construct_linear_system(
             Nt = N
             deg = 4  # degree of polynomial to use
 
-            for p in points.keys():
+            for p in tqdm(points.keys()):
 
                 [x, y, t] = points[p]
 
@@ -748,18 +749,24 @@ if __name__ == "__main__":
     else:
         try:
             ut, vt, theta, feature_names = construct_linear_system(
-                data, p_order=3, d_order=2, dataset=args.dataset
+                data,
+                p_order=3,
+                d_order=2,
+                dataset=args.dataset,
+                deriv_method="polydiff",
             )
-            theta, ut, vt = subsample_linear_system(theta, ut, vt, subsample_rate=0.05)
+            # theta, ut, vt = subsample_linear_system(theta, ut, vt, subsample_rate=0.05)
 
             print("Solving for u")
             w_u = TrainSTRidge(theta, ut, 1e-5, 1)
+            print("u:")
+            print_pde(w_u, feature_names)
+
             print("Solving for v")
             w_v = TrainSTRidge(theta, vt, 1e-5, 1)
+            print("v:")
+            print_pde(w_v, feature_names)
+
         except Exception as e:
             print(e)
             ipdb.post_mortem()
-        print("u:")
-        print_pde(w_u, feature_names)
-        print("v:")
-        print_pde(w_v, feature_names)

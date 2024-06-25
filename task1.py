@@ -97,14 +97,17 @@ def plot(
             axs[1].set_title("theta")
     else:
         assert forcing is not None, "Please pass a forcing function to visualise"
+        three_quarters = t[-1] * 0.75
         fig, axs = plt.subplots(1, 3)
         fig.suptitle("Pendulum motion")
         axs[0].plot(t, y[:, 0])
         axs[0].set_title("x")
         axs[1].plot(t, y[:, 2])
+        axs[1].axvline(x=three_quarters, color="r", linestyle="--")
         axs[1].set_title("theta")
         force = jax.vmap(forcing)(jnp.expand_dims(t, 1))
         axs[2].plot(t, force)
+        axs[2].axvline(x=three_quarters, color="r", linestyle="--")
         axs[2].set_title("Learnt F(t)")
 
     plt.tight_layout()
@@ -199,8 +202,11 @@ class BalancePendulum:
         """
         _, y = self.ode_solver(forcing_model)
         quarter = len(y) // 4
+        quarter += (
+            len(y) // 16
+        )  # Begin penalising a little before the period we actually care about
         # ipdb.set_trace()
-        penalised_indices = [2]
+        penalised_indices = [2, 3]
         loss = jnp.mean(y[-quarter:, penalised_indices] ** 2)
         # loss = jnp.mean(y[-quarter:, :] ** 2)
         return loss
@@ -247,7 +253,7 @@ def task2():
     t0 = 0.0
     tf = 5.0
     n_ode_steps = 500
-    n_training_steps = 1800
+    n_training_steps = 5000
     h = (tf - t0) / n_ode_steps
     solver = BalancePendulum(1, 64, 1, jr.key(0), y0, t0, tf, h)
     solver.train(n_training_steps)
