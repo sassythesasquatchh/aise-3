@@ -12,6 +12,7 @@ from functools import partial
 from argparse import ArgumentParser
 import numpy as np
 from matplotlib.animation import FuncAnimation
+import copy
 
 
 # Constants
@@ -111,7 +112,7 @@ def plot(
         axs[2].set_title("Learnt F(t)")
 
     plt.tight_layout()
-    plt.savefig(title + ".png", dpi=300)
+    plt.savefig(f"task1_plots/{title}.png", dpi=300)
 
 
 def animate(y, title):
@@ -213,6 +214,8 @@ class BalancePendulum:
 
     def train(self, n_steps=2000):
         opt_state = self.optim.init(eqx.filter(self.forcing_model, eqx.is_array))
+        best_loss = float("inf")
+        best_model = copy.deepcopy(self.forcing_model)
 
         @eqx.filter_jit
         def step(opt_state, forcing_model):
@@ -226,8 +229,15 @@ class BalancePendulum:
             self.forcing_model, opt_state, loss_value = step(
                 opt_state, self.forcing_model
             )
+            if loss_value < best_loss:
+                best_loss = loss_value
+                best_model = copy.deepcopy(self.forcing_model)
+
             if (i + 1) % 100 == 0:
                 print(f"[{i+1}/{n_steps}] loss: {loss_value}")
+
+        self.forcing_model = best_model
+        print(f"Training completed. Best loss: {best_loss}")
 
 
 def task1():
@@ -253,7 +263,7 @@ def task2():
     t0 = 0.0
     tf = 5.0
     n_ode_steps = 500
-    n_training_steps = 5000
+    n_training_steps = 200000
     h = (tf - t0) / n_ode_steps
     solver = BalancePendulum(1, 64, 1, jr.key(0), y0, t0, tf, h)
     solver.train(n_training_steps)
