@@ -181,7 +181,34 @@ def FiniteDiff(u, dx, d):
         return ux
 
 
-def construct_linear_system(data, p_order=3, d_order=3, dataset=None):
+def PolyDiffPoint(u, x, deg=3, diff=1, index=None):
+    """
+    Same as above but now just looking at a single point
+
+    u = values of some function
+    x = x-coordinates where values are known
+    deg = degree of polynomial to use
+    diff = maximum order derivative we want
+    """
+
+    n = len(x)
+    if index == None:
+        index = (n - 1) // 2
+
+    # Fit to a polynomial
+    poly = np.polynomial.chebyshev.Chebyshev.fit(x, u, deg)
+
+    # Take derivatives
+    derivatives = []
+    for d in range(1, diff + 1):
+        derivatives.append(poly.deriv(m=d)(x[index]))
+
+    return derivatives
+
+
+def construct_linear_system(
+    data, p_order=3, d_order=3, dataset=None, deriv_method="FD"
+):
     """
     Construct the theta matrix from the data
     """
@@ -243,89 +270,220 @@ def construct_linear_system(data, p_order=3, d_order=3, dataset=None):
 
         assert v.shape == u.shape, "u and v must have same shape"
 
-        ut = np.zeros_like(u)
-        vt = np.zeros_like(v)
-        dt = np.mean(t[1:] - t[:-1])
-        # loop over spatial dimensions, to calculate how solution varies in time at each point
-        for i in range(u.shape[0]):
-            for j in range(u.shape[1]):
-                ut[i, j, :] = FiniteDiff(u[i, j, :], dt, 1)
-                vt[i, j, :] = FiniteDiff(v[i, j, :], dt, 1)
+        if deriv_method == "FD":
 
-        # flatten over both spatial dimensions
-        ut = np.reshape(ut, (-1, 1))
-        vt = np.reshape(vt, (-1, 1))
+            ut = np.zeros_like(u)
+            vt = np.zeros_like(v)
+            dt = np.mean(t[1:] - t[:-1])
+            # loop over spatial dimensions, to calculate how solution varies in time at each point
+            for i in range(u.shape[0]):
+                for j in range(u.shape[1]):
+                    ut[i, j, :] = FiniteDiff(u[i, j, :], dt, 1)
+                    vt[i, j, :] = FiniteDiff(v[i, j, :], dt, 1)
 
-        pure_u_derivs = []
-        pure_v_derivs = []
-        dx = np.mean(x[1:] - x[:-1])
-        dy = np.mean(y[1:] - y[:-1])
+            # flatten over both spatial dimensions
+            ut = np.reshape(ut, (-1, 1))
+            vt = np.reshape(vt, (-1, 1))
 
-        for sol, derivs in zip([u, v], [pure_u_derivs, pure_v_derivs]):
-            for order in range(1, d_order + 1):
-                # dx
-                d = np.zeros_like(sol)
-                print("Calculating dx order ", order)
-                # loop over time
-                for t in range(sol.shape[-1]):
-                    # loop over y
-                    for y in range(sol.shape[1]):
-                        d[:, y, t] = FiniteDiff(sol[:, y, t], dx, order)
-                derivs.append(d.copy())
+            pure_u_derivs = []
+            pure_v_derivs = []
+            dx = np.mean(x[1:] - x[:-1])
+            dy = np.mean(y[1:] - y[:-1])
 
-                # dy
-                d = np.zeros_like(sol)
-                print("Calculating dy order ", order)
+            for sol, derivs in zip([u, v], [pure_u_derivs, pure_v_derivs]):
+                for order in range(1, d_order + 1):
+                    # dx
+                    d = np.zeros_like(sol)
+                    print("Calculating dx order ", order)
+                    # loop over time
+                    for t in range(sol.shape[-1]):
+                        # loop over y
+                        for y in range(sol.shape[1]):
+                            d[:, y, t] = FiniteDiff(sol[:, y, t], dx, order)
+                    derivs.append(d.copy())
 
-                for t in range(sol.shape[-1]):
-                    for x in range(sol.shape[0]):
-                        d[x, :, t] = FiniteDiff(sol[x, :, t], dy, order)
-                derivs.append(d.copy())
+                    # dy
+                    d = np.zeros_like(sol)
+                    print("Calculating dy order ", order)
 
-        mixed_u_derivs = []
-        mixed_v_derivs = []
-        if d_order > 1:
-            for mixed_derivs, pure_derivs in zip(
-                [mixed_u_derivs, mixed_v_derivs], [pure_u_derivs, pure_v_derivs]
-            ):
-                # dy dx
-                print("Calculating dy dx")
-                sol_dx = pure_derivs[0]
-                d = np.zeros_like(sol_dx)
-                for t in range(sol.shape[-1]):
-                    for x in range(sol.shape[0]):
-                        d[x, :, t] = FiniteDiff(sol_dx[x, :, t], dy, 1)
-                mixed_derivs.append(np.reshape(d, (-1, 1)))
+                    for t in range(sol.shape[-1]):
+                        for x in range(sol.shape[0]):
+                            d[x, :, t] = FiniteDiff(sol[x, :, t], dy, order)
+                    derivs.append(d.copy())
 
-        if d_order > 2:
-            for mixed_derivs, pure_derivs in zip(
-                [mixed_u_derivs, mixed_v_derivs], [pure_u_derivs, pure_v_derivs]
-            ):
-                # dy dx^2
-                print("Calculating dy dx^2")
-                sol_dxx = pure_derivs[2]
-                d = np.zeros_like(sol_dxx)
-                for t in range(sol.shape[-1]):
-                    for x in range(sol.shape[0]):
-                        d[x, :, t] = FiniteDiff(sol_dx[x, :, t], dy, 1)
-                mixed_derivs.append(np.reshape(d, (-1, 1)))
+            mixed_u_derivs = []
+            mixed_v_derivs = []
+            if d_order > 1:
+                for mixed_derivs, pure_derivs in zip(
+                    [mixed_u_derivs, mixed_v_derivs], [pure_u_derivs, pure_v_derivs]
+                ):
+                    # dy dx
+                    print("Calculating dy dx")
+                    sol_dx = pure_derivs[0]
+                    d = np.zeros_like(sol_dx)
+                    for t in range(sol.shape[-1]):
+                        for x in range(sol.shape[0]):
+                            d[x, :, t] = FiniteDiff(sol_dx[x, :, t], dy, 1)
+                    mixed_derivs.append(np.reshape(d, (-1, 1)))
 
-                # dx dy^2
-                print("Calculating dx dy^2")
-                sol_dyy = pure_derivs[3]
-                d = np.zeros_like(sol_dyy)
-                for t in range(sol.shape[-1]):
-                    for y in range(sol.shape[1]):
-                        d[:, y, t] = FiniteDiff(sol_dyy[:, y, t], dx, 1)
-                mixed_derivs.append(np.reshape(d, (-1, 1)))
+            if d_order > 2:
+                for mixed_derivs, pure_derivs in zip(
+                    [mixed_u_derivs, mixed_v_derivs], [pure_u_derivs, pure_v_derivs]
+                ):
+                    # dy dx^2
+                    print("Calculating dy dx^2")
+                    sol_dxx = pure_derivs[2]
+                    d = np.zeros_like(sol_dxx)
+                    for t in range(sol.shape[-1]):
+                        for x in range(sol.shape[0]):
+                            d[x, :, t] = FiniteDiff(sol_dx[x, :, t], dy, 1)
+                    mixed_derivs.append(np.reshape(d, (-1, 1)))
 
-        derivs = (
-            [np.ones_like(u)]
-            + pure_u_derivs
-            + pure_v_derivs
-            + mixed_u_derivs
-            + mixed_v_derivs
-        )
+                    # dx dy^2
+                    print("Calculating dx dy^2")
+                    sol_dyy = pure_derivs[3]
+                    d = np.zeros_like(sol_dyy)
+                    for t in range(sol.shape[-1]):
+                        for y in range(sol.shape[1]):
+                            d[:, y, t] = FiniteDiff(sol_dyy[:, y, t], dx, 1)
+                    mixed_derivs.append(np.reshape(d, (-1, 1)))
+
+            derivs = (
+                [np.ones_like(u)]
+                + pure_u_derivs
+                + pure_v_derivs
+                + mixed_u_derivs
+                + mixed_v_derivs
+            )
+
+        elif deriv_method == "PolyDiff":
+
+            np.random.seed(0)
+
+            num_xy = 5000  # needs to be very high to work with noise
+            num_t = 30
+            num_points = num_xy * num_t
+            boundary = 5
+            points = {}
+            count = 0
+            n = len(x)
+            U = u
+            V = v
+
+            for p in range(num_xy):
+                x = np.random.choice(np.arange(boundary, n - boundary), 1)[0]
+                y = np.random.choice(np.arange(boundary, n - boundary), 1)[0]
+                for t in range(num_t):
+                    points[count] = [x, y, 6 * t + 10]
+                    count = count + 1
+
+            # Take up to second order derivatives.
+            u = np.zeros((num_points, 1))
+            v = np.zeros((num_points, 1))
+            ut = np.zeros((num_points, 1))
+            vt = np.zeros((num_points, 1))
+            ux = np.zeros((num_points, 1))
+            uy = np.zeros((num_points, 1))
+            uxx = np.zeros((num_points, 1))
+            uxy = np.zeros((num_points, 1))
+            uyy = np.zeros((num_points, 1))
+            vx = np.zeros((num_points, 1))
+            vy = np.zeros((num_points, 1))
+            vxx = np.zeros((num_points, 1))
+            vxy = np.zeros((num_points, 1))
+            vyy = np.zeros((num_points, 1))
+
+            N = 2 * boundary - 1  # number of points to use in fitting
+            Nt = N
+            deg = 4  # degree of polynomial to use
+
+            for p in points.keys():
+
+                [x, y, t] = points[p]
+
+                # value of function
+                u[p] = U[x, y, t]
+                v[p] = V[x, y, t]
+
+                # time derivatives
+                ut[p] = PolyDiffPoint(
+                    U[x, y, t - (Nt - 1) // 2 : t + (Nt + 1) // 2],
+                    np.arange(Nt) * dt,
+                    deg,
+                    1,
+                )[0]
+                vt[p] = PolyDiffPoint(
+                    V[x, y, t - (Nt - 1) // 2 : t + (Nt + 1) // 2],
+                    np.arange(Nt) * dt,
+                    deg,
+                    1,
+                )[0]
+
+                # spatial derivatives
+                ux_diff = PolyDiffPoint(
+                    U[x - (N - 1) // 2 : x + (N + 1) // 2, y, t],
+                    np.arange(N) * dx,
+                    deg,
+                    2,
+                )
+                uy_diff = PolyDiffPoint(
+                    U[x, y - (N - 1) // 2 : y + (N + 1) // 2, t],
+                    np.arange(N) * dy,
+                    deg,
+                    2,
+                )
+                vx_diff = PolyDiffPoint(
+                    V[x - (N - 1) // 2 : x + (N + 1) // 2, y, t],
+                    np.arange(N) * dx,
+                    deg,
+                    2,
+                )
+                vy_diff = PolyDiffPoint(
+                    V[x, y - (N - 1) // 2 : y + (N + 1) // 2, t],
+                    np.arange(N) * dy,
+                    deg,
+                    2,
+                )
+                ux_diff_yp = PolyDiffPoint(
+                    U[x - (N - 1) // 2 : x + (N + 1) // 2, y + 1, t],
+                    np.arange(N) * dx,
+                    deg,
+                    2,
+                )
+                ux_diff_ym = PolyDiffPoint(
+                    U[x - (N - 1) // 2 : x + (N + 1) // 2, y - 1, t],
+                    np.arange(N) * dx,
+                    deg,
+                    2,
+                )
+                vx_diff_yp = PolyDiffPoint(
+                    V[x - (N - 1) // 2 : x + (N + 1) // 2, y + 1, t],
+                    np.arange(N) * dx,
+                    deg,
+                    2,
+                )
+                vx_diff_ym = PolyDiffPoint(
+                    V[x - (N - 1) // 2 : x + (N + 1) // 2, y - 1, t],
+                    np.arange(N) * dx,
+                    deg,
+                    2,
+                )
+
+                ux[p] = ux_diff[0]  # first spatial derivative in x
+                uy[p] = uy_diff[0]  # first spatial derivative in y
+                uxx[p] = ux_diff[1]  # second spatial derivative in x
+                uyy[p] = uy_diff[1]  # second spatial derivative in y
+                # central difference in y of the first spatial derivative in x
+                uxy[p] = (ux_diff_yp[0] - ux_diff_ym[0]) / (2 * dy)
+
+                vx[p] = vx_diff[0]  # first spatial derivative in x
+                vy[p] = vy_diff[0]  # first spatial derivative in y
+                vxx[p] = vx_diff[1]  # second spatial derivative in x
+                vyy[p] = vy_diff[1]  # second spatial derivative in y
+                # central difference in y of the first spatial derivative in x
+                vxy[p] = (vx_diff_yp[0] - vx_diff_ym[0]) / (2 * dy)
+
+                derivs = [np.ones_like(u), ux, uy, uxx, uyy, vx, vy, vxx, vyy, uxy, vxy]
 
         u = np.reshape(u, (-1, 1))
         v = np.reshape(v, (-1, 1))
