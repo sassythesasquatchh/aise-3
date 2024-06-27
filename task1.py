@@ -79,7 +79,7 @@ def plot(
         vels = False
         if vels:
             fig, axs = plt.subplots(2, 2)
-            fig.suptitle("Pendulum motion")
+            # fig.suptitle("Pendulum motion")
             axs[0, 0].plot(t, y[:, 0])
             axs[0, 0].set_title("x")
             axs[0, 1].plot(t, y[:, 1])
@@ -90,29 +90,44 @@ def plot(
             axs[1, 1].set_title("theta_dot")
             title += "_vels"
         else:
-            fig, axs = plt.subplots(1, 2)
-            fig.suptitle("Pendulum motion")
+            fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+            # fig.suptitle("Pendulum motion")
             axs[0].plot(t, y[:, 0])
+            axs[0].set_xlabel("Time (s)")
+            axs[0].set_ylabel("Position (m)")
             axs[0].set_title("x")
+            # axs[0].grid()
             axs[1].plot(t, y[:, 2])
-            axs[1].set_title("theta")
+            axs[1].set_title(r"$\mathrm{\theta}$")
+            axs[1].set_xlabel("Time (s)")
+            axs[1].set_ylabel("Angle (rad)")
+            # axs[1].grid()
     else:
         assert forcing is not None, "Please pass a forcing function to visualise"
         three_quarters = t[-1] * 0.75
-        fig, axs = plt.subplots(1, 3)
-        fig.suptitle("Pendulum motion")
+        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+        # fig.suptitle("Pendulum motion")
         axs[0].plot(t, y[:, 0])
         axs[0].set_title("x")
+        axs[0].set_xlabel("Time (s)")
+        axs[0].set_ylabel("Position (m)")
+        # axs[0].grid()
         axs[1].plot(t, y[:, 2])
         axs[1].axvline(x=three_quarters, color="r", linestyle="--")
-        axs[1].set_title("theta")
+        axs[1].set_title(r"$\mathrm{\theta}$")
+        axs[1].set_xlabel("Time (s)")
+        axs[1].set_ylabel("Angle (rad)")
+        # axs[1].grid()
         force = jax.vmap(forcing)(jnp.expand_dims(t, 1))
         axs[2].plot(t, force)
         axs[2].axvline(x=three_quarters, color="r", linestyle="--")
         axs[2].set_title("Learnt F(t)")
+        axs[2].set_xlabel("Time (s)")
+        axs[2].set_ylabel("Force (N)")
+        # axs[2].grid()
 
     plt.tight_layout()
-    plt.savefig(f"task1_plots/{title}.png", dpi=300)
+    plt.savefig(f"task1_plots/{title}.pdf", dpi=300)
 
 
 def animate(y, title):
@@ -153,7 +168,7 @@ def animate(y, title):
         return rect, pendulum_line, pendulum_circle
 
     ani = FuncAnimation(fig, update, frames=range(len(y)), blit=True)
-    ani.save(title + ".mp4", fps=len(y) / 5)
+    ani.save(f"task1_plots/{title}.mp4", fps=len(y) / 5)
 
 
 class FCN(eqx.Module):
@@ -263,7 +278,7 @@ def task2():
     t0 = 0.0
     tf = 5.0
     n_ode_steps = 500
-    n_training_steps = 200000
+    n_training_steps = 500000
     h = (tf - t0) / n_ode_steps
     solver = BalancePendulum(1, 64, 1, jr.key(0), y0, t0, tf, h)
     solver.train(n_training_steps)

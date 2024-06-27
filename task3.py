@@ -4,6 +4,7 @@ import copy
 import ipdb
 import scipy
 from sklearn.preprocessing import StandardScaler
+from argparse import ArgumentParser
 
 
 def random_function_sampler(function_class, n_points, n_functions):
@@ -26,13 +27,13 @@ def random_function_sampler(function_class, n_points, n_functions):
 
     # Piecewise-linear
     elif function_class == "pw_linear":
-        num_segments = 10
+        num_segments = 14
 
         fs = np.zeros((n_functions, n_points))
         for f in range(n_functions):
             breakpoints = np.sort(np.random.uniform(-1, 1, num_segments - 1))
             breakpoints = np.concatenate(([-1], breakpoints, [1]))
-            ys = np.random.uniform(-3.0, 3.0, len(breakpoints))
+            ys = np.random.uniform(-2.5, 2.5, len(breakpoints))
             slopes = np.zeros(num_segments)
             for i in range(num_segments):
                 slopes[i] = (ys[i + 1] - ys[i]) / (breakpoints[i + 1] - breakpoints[i])
@@ -87,11 +88,16 @@ def solve_1d_poisson(functions):
     return np.array(solutions, dtype=np.float32)
 
 
-def build_dataset(function_class, n_functions=200):
-    n_points = 500
+def build_dataset(function_class, n_functions=200, architecture="cno", n_points=500):
     functions = random_function_sampler(function_class, n_points, n_functions)
     solutions = solve_1d_poisson(functions)
-    return np.expand_dims(functions, 2), np.expand_dims(solutions, 2)
+    if architecture == "fno":
+        functions = np.expand_dims(functions, 2)
+        solutions = np.expand_dims(solutions, 2)
+    elif architecture == "cno":
+        functions = np.expand_dims(functions, 1)
+        solutions = np.expand_dims(solutions, 1)
+    return functions, solutions
 
 
 class PoissonDataset(Dataset):
@@ -157,11 +163,20 @@ def train(model, train_data, n_epochs, val_data=None):
                 best_model = copy.deepcopy(model)
     best_loss = best_val_loss if val_data is not None else best_train_loss
     print(f"Best loss {best_loss} at epoch {best_epoch}")
-    return best_model
+    return best_model, best_loss
 
 
-def get_samples(model, function_class, device, n_samples=5):
-    functions, solutions = build_dataset(function_class, 5)
+def get_samples(
+    model,
+    function_class,
+    device,
+    n_points,
+    architecture,
+    n_samples=5,
+):
+    functions, solutions = build_dataset(
+        function_class, n_samples, architecture, n_points
+    )
     dataset = PoissonDataset(functions, solutions)
     data = DataLoader(dataset, batch_size=1)
     model.eval()
@@ -177,6 +192,7 @@ def save_results(results):
     with open("task3_plots/results.txt", "w") as f:
         for train_key in results.keys():
             f.write(f"Trained on {train_key}\n")
+            f.write(f"Best validation loss: {results[train_key]['best_val_loss']}\n")
             for test_key in results[train_key].keys() & [
                 "gp",
                 "pw_linear",
@@ -193,6 +209,9 @@ def save_results(results):
 
 
 def plot_dataset(functions, solutions, class_name):
+    if functions.shape[-1] != 1:
+        functions = functions.transpose(0, 2, 1)
+        solutions = solutions.transpose(0, 2, 1)
     fig, axs = plt.subplots(2, 1, figsize=(8, 8))
     x = np.linspace(-1, 1, len(functions[0]))
     for i in range(5):
@@ -202,12 +221,16 @@ def plot_dataset(functions, solutions, class_name):
     axs[1].set_title("Solutions")
     plt.tight_layout()
     # ipdb.set_trace()
-    plt.savefig(f"task3_plots/{class_name}_dataset.png")
+    plt.savefig(f"task3_plots/{class_name}_dataset.pdf", dpi=300)
 
 
-def plot_outputs(functions, solutions, outputs, class_name):
-    num_subplots = len(functions)
-    fig, axs = plt.subplots(num_subplots, 1, figsize=(2, 2 * num_subplots))
+def plot_outputs(functions, solutions, outputs, class_name, architecture="cno"):
+    if functions.shape[-1] != 1:
+        functions = functions.transpose(0, 2, 1)
+        solutions = solutions.transpose(0, 2, 1)
+        outputs = [output.transpose() for output in outputs]
+    num_subplots = len(outputs)
+    fig, axs = plt.subplots(1, num_subplots, figsize=(2 * num_subplots, 2))
     x = np.linspace(-1, 1, len(functions[0]))
     for i in range(5):
         axs[i].plot(x, solutions[i], label="Ground truth")
@@ -218,38 +241,76 @@ def plot_outputs(functions, solutions, outputs, class_name):
 
     plt.tight_layout()
 
-    plt.savefig(f"task3_plots/{class_name}_outputs.png")
+    plt.savefig(f"task3_plots/{class_name}_{architecture}_outputs.pdf", dpi=300)
 
 
-def main():
+def main(architecture, n_samples, debug=False):
+    batch_size = 8
+    n_points = 256 if architecture == "fno" else 256
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    function_classes = ["gp", "pw_linear", "chebyshev"]
+    function_classes = ["pw_linear", "gp", "chebyshev"]
     cache = {function_class: dict() for function_class in function_classes}
     for function_class in function_classes:
-        functions, solutions = build_dataset(function_class, 500)
-        # ipdb.set_trace()
-        dataset = PoissonDataset(functions, solutions)
-        train_data = DataLoader(dataset, batch_size=32, shuffle=True)
-
-        functions, solutions = build_dataset(function_class, 50)
-        plot_dataset(functions, solutions, function_class)
-        dataset = PoissonDataset(functions, solutions)
-        val_data = DataLoader(dataset, batch_size=32, shuffle=True)
-        # train_data, val_data = torch.utils.data.random_split(dataset, [160, 40])
-
-        model = FNO1d(modes=16, width=64).to(device)
-        model = train(model, train_data, val_data=val_data, n_epochs=100)
-        functions, solutions, outputs = get_samples(
-            model, function_class=function_class, device=device
+        functions, solutions = build_dataset(
+            function_class, n_samples, architecture, n_points
         )
-        plot_outputs(functions, solutions, outputs, function_class)
+        dataset = PoissonDataset(functions, solutions)
+        train_data = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-        functions, solutions = build_dataset(function_class, 100)
+        functions, solutions = build_dataset(function_class, 50, architecture, n_points)
+        if not debug:
+            plot_dataset(functions, solutions, function_class)
+        dataset = PoissonDataset(functions, solutions)
+        val_data = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        # train_data, val_data = torch.utils.data.random_split(dataset, [160, 40])
+        if architecture == "cno":
+            model = CNO1d(
+                in_dim=1,  # Number of input channels.
+                out_dim=1,  # Number of input channels.
+                size=dataset[0][0].shape[
+                    -1
+                ],  # Input and Output spatial size (required )
+                N_layers=4,  # Number of (D) or (U) blocks in the network
+                N_res=4,  # Number of (R) blocks per level (except the neck)
+                N_res_neck=4,  # Number of (R) blocks in the neck
+                channel_multiplier=16,  # How the number of channels evolve?
+                use_bn=False,
+            ).to(device)
+        elif architecture == "fno":
+            model = FNO1d(modes=16, width=64).to(device)
+        if debug:
+            model, best_val_loss = train(
+                model, train_data, val_data=val_data, n_epochs=1
+            )
+        else:
+            model, best_val_loss = train(
+                model, train_data, val_data=val_data, n_epochs=500
+            )
+        functions, solutions, outputs = get_samples(
+            model,
+            function_class=function_class,
+            device=device,
+            n_points=n_points,
+            architecture=architecture,
+        )
+        if not debug:
+            plot_outputs(
+                functions,
+                solutions,
+                outputs,
+                function_class,
+                architecture=architecture,
+            )
+
+        functions, solutions = build_dataset(
+            function_class, 100, architecture, n_points
+        )
         # plot_dataset(functions, solutions, function_class)
         # dataset = PoissonDataset(functions, solutions)
         # eval_data = DataLoader(dataset, batch_size=32, shuffle=True)
-        cache[function_class]["trained"] = model
-        cache[function_class]["eval_data"] = (functions, solutions)
+        cache[function_class]["trained"] = copy.deepcopy(model)
+        cache[function_class]["eval_data"] = copy.deepcopy((functions, solutions))
+        cache[function_class]["best_val_loss"] = best_val_loss
         # cache[function_class]["eval_data"] = eval_data
         # cache[function_class]["finetune_data"] = DataLoader(
         #     PoissonDataset(functions[:20, :], solutions[:20, :]),
@@ -264,19 +325,20 @@ def main():
             # functions, solutions = build_dataset(function_class_testing, 100)
             # eval_dataset = PoissonDataset(functions, solutions)
             # eval_data = DataLoader(eval_dataset, batch_size=16, shuffle=False)
-            model = copy.deepcopy(cache[function_class]["trained"])
+            model = copy.deepcopy(cache[function_class_trained]["trained"])
             model.eval()
             zero_shot_loss = 0
-            functions, solutions = copy.deepcopy(
+            class_functions, class_solutions = copy.deepcopy(
                 cache[function_class_testing]["eval_data"]
             )
-            n_eval_functions = len(functions)
+            n_eval_functions = len(class_functions)
             n_val_functions = n_eval_functions // 8
             eval_data = DataLoader(
                 PoissonDataset(
-                    functions[:-n_val_functions], solutions[:-n_val_functions]
+                    class_functions[:-n_val_functions],
+                    class_solutions[:-n_val_functions],
                 ),
-                batch_size=16,
+                batch_size=batch_size,
                 shuffle=True,
             )
             for functions, solutions in eval_data:
@@ -285,31 +347,42 @@ def main():
                 predicted_solutions = model(functions)
                 loss = torch.mean((predicted_solutions - solutions) ** 2)
                 zero_shot_loss += loss.item()
-            zero_shot_loss /= len(eval_data)
+            zero_shot_loss /= len(eval_data.dataset)
             cache[function_class_trained][function_class_testing] = {
                 "zero_shot_loss": zero_shot_loss
             }
+            print(
+                f"Zero-shot loss for {function_class_trained} on {function_class_testing}: {zero_shot_loss}"
+            )
 
             # finetune_dataset = PoissonDataset(functions[:20, :], solutions[:20, :])
             # finetune_data = DataLoader(finetune_dataset, batch_size=16, shuffle=True)
             # finetune_data = cache[function_class]["finetune_data"]
             n_finetune = 20
             finetune_data = DataLoader(
-                PoissonDataset(functions[:n_finetune], solutions[:n_finetune]),
-                batch_size=16,
+                PoissonDataset(
+                    class_functions[:n_finetune], class_solutions[:n_finetune]
+                ),
+                batch_size=batch_size,
                 shuffle=True,
             )
             val_data = DataLoader(
                 PoissonDataset(
-                    functions[-n_val_functions:], solutions[-n_val_functions:]
+                    class_functions[-n_val_functions:],
+                    class_solutions[-n_val_functions:],
                 ),
                 batch_size=5,
                 shuffle=True,
             )
 
-            finetuned_model = train(
-                model, train_data=finetune_data, val_data=val_data, n_epochs=1000
-            )
+            if debug:
+                finetuned_model, best_val_loss = train(
+                    model, train_data=finetune_data, val_data=val_data, n_epochs=1
+                )
+            else:
+                finetuned_model, best_val_loss = train(
+                    model, train_data=finetune_data, val_data=val_data, n_epochs=1000
+                )
             finetuned_model.eval()
             finetuned_loss = 0
             for functions, solutions in eval_data:
@@ -319,17 +392,27 @@ def main():
                 loss = torch.mean((predicted_solutions - solutions) ** 2)
                 finetuned_loss += loss.item()
 
-            finetuned_loss /= len(eval_data)
+            finetuned_loss /= len(eval_data.dataset)
             cache[function_class_trained][function_class_testing][
                 "finetuned_loss"
             ] = finetuned_loss
-
-    save_results(cache)
+            print(
+                f"Finetuned loss for {function_class_trained} on {function_class_testing}: {finetuned_loss}"
+            )
+    if not debug:
+        save_results(cache)
 
 
 if __name__ == "__main__":
+    parser = ArgumentParser()
+    parser.add_argument(
+        "--architecture", "-a", type=str, default="cno", choices=["cno", "fno"]
+    )
+    parser.add_argument("--n_samples", "-n", type=int, default=100)
+    parser.add_argument("--debug", action="store_true")
+    args = parser.parse_args()
     try:
-        main()
+        main(args.architecture, args.n_samples, args.debug)
     except Exception as e:
         print(e)
         ipdb.post_mortem()

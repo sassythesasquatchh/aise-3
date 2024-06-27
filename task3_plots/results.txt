@@ -1,0 +1,30 @@
+Trained on pw_linear
+Best validation loss: 1.8120827589882538e-05
+  Tested on gp
+    Zero-shot loss: 1.3630949979415163e-05
+    Finetuned loss: 0.00011296275459409861
+
+  Tested on chebyshev
+    Zero-shot loss: 9.392119285290722e-06
+    Finetuned loss: 0.00013590148955699988
+
+Trained on gp
+Best validation loss: 1.7503488998045213e-05
+  Tested on chebyshev
+    Zero-shot loss: 8.90529967860361e-06
+    Finetuned loss: 0.00012888432667585386
+
+  Tested on pw_linear
+    Zero-shot loss: 0.0002420564997009933
+    Finetuned loss: 0.0003479997573198158
+
+Trained on chebyshev
+Best validation loss: 1.256048217328498e-05
+  Tested on gp
+    Zero-shot loss: 5.625497463122222e-05
+    Finetuned loss: 0.00010632040225159885
+
+  Tested on pw_linear
+    Zero-shot loss: 0.0014226915505291386
+    Finetuned loss: 0.0003147194445112043
+

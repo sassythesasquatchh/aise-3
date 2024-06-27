@@ -17,12 +17,26 @@ def plot_data(data, title=None):
         u = data["u"]
 
         # X, T = np.meshgrid(x, t)
-        ax.plot_surface(x, t, u, cmap="viridis")
+        ax.plot_surface(
+            x,
+            t,
+            u,
+            cmap="viridis",
+            linewidth=0,
+            antialiased=False,
+            rstride=1,
+            cstride=1,
+        )
         ax.set_xlabel("x")
         ax.set_ylabel("t")
+        ax.set_zlabel("u")
+
+        plt.tight_layout()
         # ax.scatter(x, t, u, c=u, cmap="viridis")
         if title is not None:
-            filename = "task2_plots/" + title + "_data.png"
+            # filename = "task2_plots/" + title + "_scatter" + "_data.png"
+            filename = "task2_plots/" + title + "_mesh" + "_data.png"
+
             plt.savefig(filename, dpi=300)
     else:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
@@ -729,6 +743,7 @@ if __name__ == "__main__":
     assert args.dataset in [1, 2, 3], "Invalid dataset number"
     data = np.load(f"data/{args.dataset}.npz")
     # plot_domain(data, str(args.dataset))
+    # plot_data(data, str(args.dataset))
     test_uniform_grid(data, args.dataset)
 
     if args.dataset in [1, 2]:
@@ -741,6 +756,7 @@ if __name__ == "__main__":
                 data, p_order=2, d_order=3, dataset=args.dataset
             )
         try:
+            print("Using features: ", feature_names)
             w = TrainSTRidge(theta, ut, 1e-5, 5)
         except Exception as e:
             print(e)
@@ -756,6 +772,7 @@ if __name__ == "__main__":
                 deriv_method="polydiff",
             )
             # theta, ut, vt = subsample_linear_system(theta, ut, vt, subsample_rate=0.05)
+            print("Using features: ", feature_names)
 
             print("Solving for u")
             w_u = TrainSTRidge(theta, ut, 1e-5, 1)
